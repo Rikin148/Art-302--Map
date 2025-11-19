@@ -88,6 +88,92 @@ export default function GlobeViewer() {
 
     scene.add(globe);
 
+    // Debug: Check globe transformation
+    console.log('Globe position:', globe.position);
+    console.log('Globe rotation:', globe.rotation);
+    console.log('Globe scale:', globe.scale);
+
+    // Create invisible clickable spheres for each monster location
+    // These spheres make the entire dot area clickable, not just the center
+    // Add them as children of the globe so they rotate with it automatically
+    const clickableSpheres: any[] = [];
+    const sphereGeometry = new THREE.SphereGeometry(15, 16, 16); // Reduced radius for more precise clicking
+    const sphereMaterial = new THREE.MeshBasicMaterial({
+      visible: true, // TEMPORARILY VISIBLE for debugging
+      transparent: true,
+      opacity: 0.3,
+      color: 0x00ff00 // Green for debugging
+    });
+
+    MONSTERS.forEach((monster) => {
+      // Try to match ThreeGlobe's internal coordinate system
+      // ThreeGlobe might use different conventions for lat/lng to 3D conversion
+      const lat = monster.latitude;
+      const lng = monster.longitude;
+
+      // Try different coordinate conversions to match ThreeGlobe
+      // Method 1: Standard spherical coordinates
+      const latRad = (lat * Math.PI) / 180;
+      const lngRad = (lng * Math.PI) / 180;
+
+      // ThreeGlobe might use different axis orientation
+      // Let's try flipping some signs to match
+      const globeRadius = 100;
+      const altitude = 0.02;
+      const radius = globeRadius + (altitude * globeRadius);
+
+      // Try standard with axes swapped: x = r * cos(lat) * sin(lng)
+      //                                   y = r * sin(lat)
+      //                                   z = r * cos(lat) * cos(lng)
+      const x = radius * Math.cos(latRad) * Math.sin(lngRad);
+      const y = radius * Math.sin(latRad);
+      const z = radius * Math.cos(latRad) * Math.cos(lngRad);
+
+      // Create clickable sphere at this location
+      const clickableSphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+      clickableSphere.position.set(x, y, z);
+      clickableSphere.userData = { monster };
+      clickableSphere.name = `clickable-${monster.id}`;
+
+      // Debug Bunyip position - test multiple coordinate systems
+      if (monster.id === 'bunyip') {
+        console.log('=== BUNYIP POSITION DEBUG ===');
+        console.log('Input lat/lng:', monster.latitude, monster.longitude);
+
+        // Test different coordinate systems
+        const systems = [
+          {
+            name: 'Current',
+            x: radius * Math.cos(latRad) * Math.sin(lngRad),
+            y: radius * Math.sin(latRad),
+            z: radius * Math.cos(latRad) * Math.cos(lngRad)
+          },
+          {
+            name: 'Standard XYZ',
+            x: radius * Math.cos(latRad) * Math.cos(lngRad),
+            y: radius * Math.sin(latRad),
+            z: radius * Math.cos(latRad) * Math.sin(lngRad)
+          },
+          {
+            name: 'Y-up system',
+            x: radius * Math.sin(latRad) * Math.cos(lngRad),
+            y: radius * Math.cos(latRad),
+            z: radius * Math.sin(latRad) * Math.sin(lngRad)
+          }
+        ];
+
+        systems.forEach(system => {
+          console.log(`${system.name}: x=${system.x.toFixed(2)}, y=${system.y.toFixed(2)}, z=${system.z.toFixed(2)}`);
+        });
+
+        console.log('Using current system:', { x: x.toFixed(2), y: y.toFixed(2), z: z.toFixed(2) });
+      }
+
+      // Add as child of globe
+      globe.add(clickableSphere);
+      clickableSpheres.push(clickableSphere);
+    });
+
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
     scene.add(ambientLight);
 
@@ -172,34 +258,26 @@ export default function GlobeViewer() {
       mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
       raycaster.setFromCamera(mouse, camera);
 
-      let closestMonster: Monster | null = null;
-      let closestDistance = Infinity;
+      // Update scene matrices before calculations
+      scene.updateMatrixWorld(true);
 
-      MONSTERS.forEach((monster) => {
-        const phi = ((90 - monster.latitude) * Math.PI) / 180;
-        const theta = ((monster.longitude + 180) * Math.PI) / 180;
-        const radius = 100;
+      // Use raycaster to check intersections with clickable spheres
+      // This detects clicks on the invisible spheres around monster locations
+      const intersects = raycaster.intersectObjects(clickableSpheres, false);
 
-        const x = -radius * Math.sin(phi) * Math.cos(theta);
-        const y = radius * Math.cos(phi);
-        const z = radius * Math.sin(phi) * Math.sin(theta);
+      let clickedMonster: Monster | null = null;
 
-        const monsterWorldPos = new THREE.Vector3(x, y, z);
-        monsterWorldPos.applyMatrix4(globe.matrixWorld);
+      if (intersects.length > 0) {
+        // Use the first (closest) intersection
+        const closestIntersect = intersects[0];
+        clickedMonster = closestIntersect.object.userData?.monster as Monster;
 
-        const screenPos = monsterWorldPos.project(camera);
-        const dx = screenPos.x - mouse.x;
-        const dy = screenPos.y - mouse.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
+        // Debug logging
+        console.log('Clicked monster:', clickedMonster?.name, 'at location:', clickedMonster?.latitude, clickedMonster?.longitude);
+      }
 
-        if (distance < 0.12 && distance < closestDistance) {
-          closestDistance = distance;
-          closestMonster = monster;
-        }
-      });
-
-      if (closestMonster) {
-        setSelectedMonster(closestMonster);
+      if (clickedMonster) {
+        setSelectedMonster(clickedMonster);
       } else {
         setSelectedMonster(null);
       }
@@ -226,6 +304,8 @@ export default function GlobeViewer() {
         globe.rotation.y += rotationVelocity.y;
       }
 
+      // Spheres are now children of globe, so they rotate automatically
+
       renderer.render(scene, camera);
     };
 
@@ -247,6 +327,14 @@ export default function GlobeViewer() {
       renderer.domElement.removeEventListener("mouseup", onMouseUp);
       renderer.domElement.removeEventListener("wheel", onWheel);
       renderer.domElement.removeEventListener("click", onClick);
+
+      // Clean up clickable spheres
+      clickableSpheres.forEach((sphere: any) => {
+        globe.remove(sphere);
+        sphere.geometry.dispose();
+        sphere.material.dispose();
+      });
+      clickableSpheres.length = 0;
 
       if (mountRef.current && renderer.domElement) {
         mountRef.current.removeChild(renderer.domElement);
@@ -304,7 +392,6 @@ export default function GlobeViewer() {
         </h1>
         <div
           style={{
-            marginTop: "10px",
             height: "2px",
             width: "300px",
             background: "linear-gradient(90deg, transparent 0%, #d4af37 50%, transparent 100%)",
@@ -360,7 +447,6 @@ export default function GlobeViewer() {
               overflowY: "auto",
               animation: "popupAppear 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)",
               zIndex: 1000,
-              position: "relative" as const,
             }}
           >
             <div
@@ -475,7 +561,7 @@ export default function GlobeViewer() {
                   letterSpacing: "2px",
                 }}
               >
-                {String(selectedMonster.order).padStart(2, "0")} / 13
+                {String(selectedMonster.order).padStart(2, "0")} / 12
               </div>
             </div>
 
