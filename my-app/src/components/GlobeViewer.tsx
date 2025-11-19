@@ -99,10 +99,9 @@ export default function GlobeViewer() {
     const clickableSpheres: any[] = [];
     const sphereGeometry = new THREE.SphereGeometry(15, 16, 16); // Reduced radius for more precise clicking
     const sphereMaterial = new THREE.MeshBasicMaterial({
-      visible: true, // TEMPORARILY VISIBLE for debugging
+      visible: false, // Invisible but still clickable
       transparent: true,
-      opacity: 0.3,
-      color: 0x00ff00 // Green for debugging
+      opacity: 0
     });
 
     MONSTERS.forEach((monster) => {

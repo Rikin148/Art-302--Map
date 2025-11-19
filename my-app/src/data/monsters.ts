@@ -137,7 +137,7 @@ export const MONSTERS: Monster[] = [
   },
   {
     id: "ice-colossus",
-    name: "Ice Colossus, Leviathan of the Frozen Deep",
+    name: "Ice Leviathan",
     country: "Antarctica",
     continent: "Antarctica",
     order: 12,
